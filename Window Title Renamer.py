@@ -9,7 +9,7 @@ kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 
 # ============================================================
-# **Win32 types (self-defined, no reliance on ctypes.wintypes' missing names)**
+# **Win32 types (self-defined; avoid ctypes.wintypes missing attrs)**
 # ============================================================
 VOID_P = ctypes.c_void_p
 HANDLE = VOID_P
@@ -20,7 +20,6 @@ HCURSOR = HANDLE
 HBRUSH = HANDLE
 HMENU = HANDLE
 HINSTANCE = HANDLE
-HHOOK = HANDLE
 LPVOID = VOID_P
 
 BOOL = ctypes.c_int
@@ -33,14 +32,6 @@ WCHAR = ctypes.c_wchar
 LPCWSTR = ctypes.c_wchar_p
 LPWSTR = ctypes.c_wchar_p
 
-kernel32.GetCurrentProcessId.argtypes = []
-kernel32.GetCurrentProcessId.restype = DWORD
-user32.UnregisterClassW.argtypes = [LPCWSTR, HINSTANCE]
-user32.UnregisterClassW.restype = BOOL
-
-_tray_class_counter = 0
-
-# pointer-size dependent integer types
 if ctypes.sizeof(VOID_P) == 8:
     WPARAM = ctypes.c_uint64
     LPARAM = ctypes.c_int64
@@ -99,9 +90,58 @@ class NOTIFYICONDATAW(ctypes.Structure):
     ]
 
 # ============================================================
+# **Constants**
+# ============================================================
+SW_HIDE = 0
+SW_SHOW = 5
+
+WM_NULL = 0x0000
+WM_QUIT = 0x0012
+
+WM_APP = 0x8000
+WM_TRAYICON = WM_APP + 1
+
+WM_CLOSE = 0x0010
+WM_DESTROY = 0x0002
+
+PM_REMOVE = 0x0001
+
+NIM_ADD = 0x00000000
+NIM_DELETE = 0x00000002
+
+NIF_MESSAGE = 0x00000001
+NIF_ICON = 0x00000002
+NIF_TIP = 0x00000004
+
+IDI_APPLICATION = 32512
+
+TPM_RIGHTBUTTON = 0x0002
+TPM_RETURNCMD = 0x0100
+
+ID_TRAY_SHOW = 1001
+ID_TRAY_EXIT = 1002
+
+_tray_class_counter = 0
+
+# ============================================================
 # **Win32 API prototypes**
 # ============================================================
-# window list / title
+kernel32.GetCurrentProcessId.argtypes = []
+kernel32.GetCurrentProcessId.restype = DWORD
+
+kernel32.GetModuleHandleW.argtypes = [LPCWSTR]
+kernel32.GetModuleHandleW.restype = HINSTANCE
+
+kernel32.GetConsoleWindow.argtypes = []
+kernel32.GetConsoleWindow.restype = HWND
+
+kernel32.SetConsoleTitleW.argtypes = [LPCWSTR]
+kernel32.SetConsoleTitleW.restype = BOOL
+
+user32.ShowWindow.argtypes = [HWND, ctypes.c_int]
+user32.ShowWindow.restype = BOOL
+
+# enumerate windows / titles
 user32.EnumWindows.argtypes = [EnumWindowsProc, LPARAM]
 user32.EnumWindows.restype = BOOL
 
@@ -123,19 +163,12 @@ user32.SetWindowTextW.restype = BOOL
 user32.IsWindow.argtypes = [HWND]
 user32.IsWindow.restype = BOOL
 
-# console window control
-kernel32.GetConsoleWindow.argtypes = []
-kernel32.GetConsoleWindow.restype = HWND
-
-user32.ShowWindow.argtypes = [HWND, ctypes.c_int]
-user32.ShowWindow.restype = BOOL
-
-kernel32.SetConsoleTitleW.argtypes = [LPCWSTR]
-kernel32.SetConsoleTitleW.restype = BOOL
-
-# tray + hidden message window
+# tray window + message loop
 user32.RegisterClassW.argtypes = [ctypes.POINTER(WNDCLASSW)]
 user32.RegisterClassW.restype = ATOM
+
+user32.UnregisterClassW.argtypes = [LPCWSTR, HINSTANCE]
+user32.UnregisterClassW.restype = BOOL
 
 user32.CreateWindowExW.argtypes = [
     DWORD, LPCWSTR, LPCWSTR, DWORD,
@@ -156,11 +189,17 @@ user32.PostQuitMessage.restype = None
 user32.GetMessageW.argtypes = [ctypes.POINTER(MSG), HWND, UINT, UINT]
 user32.GetMessageW.restype = BOOL
 
+user32.PeekMessageW.argtypes = [ctypes.POINTER(MSG), HWND, UINT, UINT, UINT]
+user32.PeekMessageW.restype = BOOL
+
 user32.TranslateMessage.argtypes = [ctypes.POINTER(MSG)]
 user32.TranslateMessage.restype = BOOL
 
 user32.DispatchMessageW.argtypes = [ctypes.POINTER(MSG)]
 user32.DispatchMessageW.restype = LRESULT
+
+user32.PostMessageW.argtypes = [HWND, UINT, WPARAM, LPARAM]
+user32.PostMessageW.restype = BOOL
 
 user32.CreatePopupMenu.argtypes = []
 user32.CreatePopupMenu.restype = HMENU
@@ -177,49 +216,28 @@ user32.SetForegroundWindow.restype = BOOL
 user32.TrackPopupMenu.argtypes = [HMENU, UINT, ctypes.c_int, ctypes.c_int, ctypes.c_int, HWND, LPVOID]
 user32.TrackPopupMenu.restype = UINT
 
-shell32.Shell_NotifyIconW.argtypes = [DWORD, ctypes.POINTER(NOTIFYICONDATAW)]
-shell32.Shell_NotifyIconW.restype = BOOL
-
 user32.LoadIconW.argtypes = [HINSTANCE, LPCWSTR]
 user32.LoadIconW.restype = HICON
 
-kernel32.GetModuleHandleW.argtypes = [LPCWSTR]
-kernel32.GetModuleHandleW.restype = HINSTANCE
+shell32.Shell_NotifyIconW.argtypes = [DWORD, ctypes.POINTER(NOTIFYICONDATAW)]
+shell32.Shell_NotifyIconW.restype = BOOL
 
 # ============================================================
-# **Constants**
+# **Helpers**
 # ============================================================
-SW_HIDE = 0
-SW_SHOW = 5
-
-WM_APP = 0x8000
-WM_TRAYICON = WM_APP + 1
-WM_COMMAND = 0x0111
-WM_CLOSE = 0x0010
-WM_DESTROY = 0x0002
-
-NIM_ADD = 0x00000000
-NIM_DELETE = 0x00000002
-
-NIF_MESSAGE = 0x00000001
-NIF_ICON = 0x00000002
-NIF_TIP = 0x00000004
-
-IDI_APPLICATION = 32512
-
-TPM_RIGHTBUTTON = 0x0002
-TPM_NONOTIFY = 0x0080
-TPM_RETURNCMD = 0x0100
-
-ID_TRAY_SHOW = 1001
-ID_TRAY_EXIT = 1002
-
 def _get_last_error():
     return ctypes.get_last_error()
 
 def make_int_resource(i: int) -> LPCWSTR:
-    # MAKEINTRESOURCEW
     return ctypes.cast(ctypes.c_void_p(i), LPCWSTR)
+
+def _drain_quit_message():
+    """
+    Remove leftover WM_QUIT so next GetMessageW loop won't exit immediately.
+    """
+    msg = MSG()
+    while user32.PeekMessageW(ctypes.byref(msg), None, WM_QUIT, WM_QUIT, PM_REMOVE):
+        pass
 
 # ============================================================
 # **Core: enumerate windows + set title**
@@ -293,12 +311,14 @@ class PersistentRenamer:
                 items = list(self._rules.items())
             if not items:
                 continue
+
             dead = []
             for hwnd, title in items:
                 if not user32.IsWindow(HWND(hwnd)):
                     dead.append(hwnd)
                     continue
                 user32.SetWindowTextW(HWND(hwnd), title)
+
             if dead:
                 with self._lock:
                     for hwnd in dead:
@@ -309,9 +329,8 @@ class PersistentRenamer:
 # ============================================================
 class TrayController:
     """
-    - 隐藏 console
-    - 创建隐藏消息窗口 + 托盘图标
-    - 右键/左键弹出菜单：Show / Exit
+    Hide console -> tray icon + hidden message window.
+    Left/Right click shows context menu: Show / Exit.
     """
     def __init__(self, tooltip="Window Title Renamer"):
         self.tooltip = tooltip
@@ -319,6 +338,8 @@ class TrayController:
         self._should_exit = False
         self._should_show = False
         self._wndproc = WNDPROC(self._wndproc_impl)
+        self._class_name = None
+        self._hinst = None
 
     def _wndproc_impl(self, hwnd, msg, wparam, lparam):
         if msg == WM_TRAYICON:
@@ -327,18 +348,12 @@ class TrayController:
                 self._show_context_menu(hwnd)
             return 0
 
-        if msg == WM_COMMAND:
-            cmd_id = int(wparam) & 0xFFFF
-            if cmd_id == ID_TRAY_SHOW:
-                self._should_show = True
-                user32.PostQuitMessage(0)
-                return 0
-            if cmd_id == ID_TRAY_EXIT:
-                self._should_exit = True
-                user32.PostQuitMessage(0)
-                return 0
+        # **关键：不要直接 PostQuitMessage，改为 DestroyWindow -> WM_DESTROY 再 PostQuitMessage**
+        if msg == WM_CLOSE:
+            user32.DestroyWindow(hwnd)
+            return 0
 
-        if msg in (WM_CLOSE, WM_DESTROY):
+        if msg == WM_DESTROY:
             user32.PostQuitMessage(0)
             return 0
 
@@ -351,30 +366,27 @@ class TrayController:
 
         pt = POINT()
         user32.GetCursorPos(ctypes.byref(pt))
-
-        # 关键：弹菜单前把自己设为前台窗口，否则菜单/命令经常不稳定
         user32.SetForegroundWindow(hwnd)
 
-        # 关键：TPM_RETURNCMD 会让 TrackPopupMenu 返回命令ID，而不是发 WM_COMMAND
+        # TPM_RETURNCMD => returns selected command id (no WM_COMMAND)
         cmd = user32.TrackPopupMenu(
             menu,
-            TPM_RIGHTBUTTON | TPM_RETURNCMD,  # 去掉 TPM_NONOTIFY（不需要）
+            TPM_RIGHTBUTTON | TPM_RETURNCMD,
             pt.x, pt.y,
             0,
             hwnd,
             None
         )
 
-        # cmd == 0 表示用户点空白处取消
         if cmd == ID_TRAY_SHOW:
             self._should_show = True
-            user32.PostQuitMessage(0)
+            user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
         elif cmd == ID_TRAY_EXIT:
             self._should_exit = True
-            user32.PostQuitMessage(0)
+            user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
 
-        # 常见托盘菜单“小坑”：需要发一个空消息让菜单正确收尾
-        user32.DefWindowProcW(hwnd, 0, 0, 0)
+        # menu cleanup nudge
+        user32.PostMessageW(hwnd, WM_NULL, 0, 0)
 
     def _add_icon(self):
         nid = NOTIFYICONDATAW()
@@ -397,33 +409,36 @@ class TrayController:
         shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(nid))
 
     def run(self):
-        hinst = kernel32.GetModuleHandleW(None)
+        # IMPORTANT: clear any leftover WM_QUIT before starting a new loop
+        _drain_quit_message()
+
+        self._hinst = kernel32.GetModuleHandleW(None)
+
         global _tray_class_counter
         _tray_class_counter += 1
-        class_name = f"WTR_TRAY_MSG_WINDOW_{kernel32.GetCurrentProcessId()}_{_tray_class_counter}"
-
+        self._class_name = f"WTR_TRAY_MSG_WINDOW_{kernel32.GetCurrentProcessId()}_{_tray_class_counter}"
 
         wc = WNDCLASSW()
         wc.style = 0
         wc.lpfnWndProc = self._wndproc
         wc.cbClsExtra = 0
         wc.cbWndExtra = 0
-        wc.hInstance = hinst
+        wc.hInstance = self._hinst
         wc.hIcon = None
         wc.hCursor = None
         wc.hbrBackground = None
         wc.lpszMenuName = None
-        wc.lpszClassName = class_name
+        wc.lpszClassName = self._class_name
 
         user32.RegisterClassW(ctypes.byref(wc))
 
         self.hwnd_msg = user32.CreateWindowExW(
             0,
-            class_name,
-            class_name,
+            self._class_name,
+            self._class_name,
             0,
             0, 0, 0, 0,
-            None, None, hinst, None
+            None, None, self._hinst, None
         )
 
         self._add_icon()
@@ -437,7 +452,9 @@ class TrayController:
         if self.hwnd_msg:
             user32.DestroyWindow(self.hwnd_msg)
             self.hwnd_msg = None
-            user32.UnregisterClassW(class_name, hinst)
+
+        if self._class_name and self._hinst:
+            user32.UnregisterClassW(self._class_name, self._hinst)
 
         return self._should_show, self._should_exit
 
@@ -491,7 +508,7 @@ def read_yesno(prompt: str) -> bool:
 # **Main loop**
 # ============================================================
 def main():
-    # **(3) set our own window title**
+    # program's own console title
     kernel32.SetConsoleTitleW("Window Title Renamer")
 
     keeper = PersistentRenamer()
@@ -523,7 +540,6 @@ def main():
                 1, len(wins)
             )
 
-            # **(2) 0 -> tray**
             if choice == 0:
                 _, should_exit = hide_to_tray()
                 if should_exit:
@@ -551,8 +567,6 @@ def main():
             else:
                 keeper.remove(hwnd)
                 print()
-
-            # **(1) loop continues: re-list and repeat**
 
     except KeyboardInterrupt:
         print("\n收到 Ctrl+C，退出。")
